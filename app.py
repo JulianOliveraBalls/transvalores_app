@@ -9,54 +9,6 @@ from utils.inceptiaToWebFlow import exportar_eventos
 # Configurar la página (esto debe ser lo primero de Streamlit)
 st.set_page_config(page_title="Transvalores App", layout="centered")
 
-# Estilos personalizados
-st.markdown(
-    """
-    <style>
-    .main {
-        background-color: #f4f6f9;
-    }
-
-    img {
-        display: block;
-        margin-left: auto;
-        margin-right: auto;
-    }
-
-    h1 {
-        color: #124e8b;
-        text-align: center;
-        font-size: 36px;
-    }
-
-    .stButton>button {
-        background-color: #124e8b;
-        color: white;
-        border: none;
-        padding: 0.5em 1em;
-        font-weight: bold;
-        border-radius: 5px;
-        transition: 0.3s;
-    }
-
-    .stButton>button:hover {
-        background-color: #0d3a66;
-    }
-
-    .stAlert, .stSuccess, .stError {
-        border-left: 5px solid #124e8b;
-    }
-
-    .stSelectbox>div {
-        background-color: white;
-        color: #124e8b;
-        font-weight: bold;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 # Mostrar el logo y el título
 logo = Image.open("logo.png")
 st.image(logo, width=150)
@@ -67,6 +19,24 @@ opcion = st.selectbox("Seleccioná qué querés hacer:", [
     "Detectar género",
     "Exportar eventos IA"
 ])
+# Ejemplos de estructura por cada opción
+ejemplos = {
+    "Detectar género": pd.DataFrame({
+        "Nombre": ["Juan Pérez", "María Gómez", "A. Sosa"]
+    }),
+    "Exportar eventos IA": pd.DataFrame({
+        "Fecha": ["2024-05-01", "2024-05-02"],
+        "Hora": ["10:30", "14:15"],
+        "Codigo": [1234, 5678],
+        "Estado": ["CONTACTADO", "NO CONTESTA"],
+        "Telefono": ["1134567890", "1198765432"]
+    })
+}
+
+# Mostrar preview del formato esperado
+st.markdown("📌 *Formato esperado para esta opción:*")
+st.dataframe(ejemplos[opcion])
+
 
 # Subida del archivo
 archivo = st.file_uploader("📂 Subí un archivo Excel", type=["xlsx"])
