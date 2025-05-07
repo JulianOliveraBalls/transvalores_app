@@ -43,8 +43,10 @@ def exportar_eventos(df):
 
     def consolidar(grupo):
         if all(grupo['EVENTO'] == "NOCONTESTA"):
-            telefonos = grupo['Telefono'].astype(str).drop_duplicates().tolist()
-            estados = grupo['Estado'].astype(str).tolist()
+            # Eliminar duplicados exactos por (Telefono, Estado)
+            unicos = grupo[['Telefono', 'Estado']].drop_duplicates()
+            telefonos = unicos['Telefono'].astype(str).tolist()
+            estados = unicos['Estado'].astype(str).tolist()
             comentarios = " - ".join(telefonos) + " NO SE CONTACTA POR IA. RESULTADO: " + " - ".join(estados)
             return pd.Series({
                 'FECHA': grupo.iloc[0]['FECHA'],
