@@ -1,3 +1,5 @@
-pandas
-gender-guesser
-openpyxl
+streamlit 
+pandas 
+openpyxl 
+gender-guesser 
+pillow
