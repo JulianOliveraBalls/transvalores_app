@@ -3,3 +3,4 @@ pandas
 openpyxl 
 gender-guesser 
 pillow
+mysql-connector-python

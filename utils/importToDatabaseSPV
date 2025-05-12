@@ -1,0 +1,183 @@
+import pandas as pd
+import mysql.connector
+from datetime import datetime
+import os
+import gender_guesser.detector as gender
+
+d = gender.Detector(case_sensitive=False)
+
+def conectar_mysql():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="transvalores",
+        database="supervielle"
+    )
+
+def calcular_tramo_mora(dias_mora):
+    if dias_mora is None:
+        return "Desconocido"
+    if dias_mora <= 30:
+        return "Menos de 30 días"
+    elif 31 <= dias_mora <= 60:
+        return "30-60 días"
+    elif 61 <= dias_mora <= 90:
+        return "60-90 días"
+    elif 91 <= dias_mora <= 180:
+        return "90-180 días"
+    else:
+        return "Más de 180 días"
+
+def calcular_rango_etario(dni):
+    if pd.notnull(dni) and len(str(dni)) == 8:
+        año_nacimiento = int(str(dni)[2:4])
+        edad = 2024 - (1900 + año_nacimiento)
+        if edad < 18:
+            return "Menor de 18"
+        elif 18 <= edad <= 30:
+            return "18-30"
+        elif 31 <= edad <= 45:
+            return "31-45"
+        elif 46 <= edad <= 60:
+            return "46-60"
+        else:
+            return "Más de 60"
+    else:
+        return "Desconocido"
+
+def predecir_genero(nombre_completo):
+    if pd.isnull(nombre_completo):
+        return "desconocido"
+    try:
+        partes = nombre_completo.split()
+        if not partes:
+            return "desconocido"
+        genero = d.get_gender(partes[0])
+        if genero in ["male", "mostly_male"]:
+            return "masculino"
+        elif genero in ["female", "mostly_female"]:
+            return "femenino"
+        if len(partes) > 1:
+            genero2 = d.get_gender(partes[1])
+            if genero2 in ["male", "mostly_male"]:
+                return "masculino"
+            elif genero2 in ["female", "mostly_female"]:
+                return "femenino"
+        return "desconocido"
+    except:
+        return "desconocido"
+
+def obtener_fecha_mes_desde_ruta(ruta_archivo):
+    try:
+        carpeta = os.path.basename(os.path.dirname(ruta_archivo)).upper()
+        meses = {
+            "ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4, "MAYO": 5, "JUNIO": 6,
+            "JULIO": 7, "AGOSTO": 8, "SEPTIEMBRE": 9, "OCTUBRE": 10, "NOVIEMBRE": 11, "DICIEMBRE": 12
+        }
+        partes = carpeta.split()
+        if len(partes) == 2 and partes[0] in meses and partes[1].isdigit():
+            mes = meses[partes[0]]
+            año = int(partes[1])
+            return datetime(año, mes, 1).date()
+    except Exception as e:
+        print(f"⚠️ Error obteniendo fecha desde carpeta: {e}")
+    return datetime.now().date()
+
+def procesar_archivo(archivo):
+    try:
+        df = pd.read_excel(archivo)
+
+        # Limpieza de columnas
+        df.columns = df.columns.str.strip()
+        df = df.loc[:, ~df.columns.str.startswith('Unnamed', na=False)]
+        df = df.dropna(axis=1, how='all')
+        df = df.where(pd.notnull(df), None)
+
+        print(f"\nColumnas importadas desde {archivo}:\n{df.columns.tolist()}")
+
+        columnas_esperadas = [
+            'DNI', 'Apellido y Nombre', 'Subsegmento', 'Clave Banco de la cuenta',
+            'deuda total del cliente', 'Localidad', 'Provincia', 'Código Postal',
+            'días de mora Total Cliente'
+        ]
+
+        # Validar columnas necesarias
+        faltantes = [col for col in columnas_esperadas if col not in df.columns]
+        if faltantes:
+            raise ValueError(f"Faltan columnas requeridas: {faltantes}")
+
+        if df['DNI'].isnull().any():
+            raise ValueError("La columna 'DNI' contiene valores nulos.")
+
+        # Solo conservar columnas necesarias
+        df = df[columnas_esperadas]
+
+        # Calcular columnas derivadas
+        df['tramo de mora'] = df['días de mora Total Cliente'].apply(calcular_tramo_mora)
+        df['rango etario'] = df['DNI'].apply(calcular_rango_etario)
+        df['Genero'] = df['Apellido y Nombre'].apply(predecir_genero)
+        df['fecha_mes'] = obtener_fecha_mes_desde_ruta(archivo)
+
+        # Reordenar
+        columnas_finales = columnas_esperadas + ['tramo de mora', 'rango etario', 'Genero', 'fecha_mes']
+        df = df[columnas_finales]
+
+        return df
+
+    except Exception as e:
+        print(f"❌ Error procesando el archivo {archivo}: {e}")
+        return None
+
+def insertar_en_mysql(df):
+    try:
+        conn = conectar_mysql()
+        cursor = conn.cursor()
+
+        columnas_requeridas = ['DNI', 'Apellido y Nombre', 'Subsegmento', 'Clave Banco de la cuenta',
+                               'deuda total del cliente', 'Localidad', 'Provincia', 'Código Postal',
+                               'días de mora Total Cliente', 'tramo de mora', 'rango etario', 'Genero',
+                               'fecha_mes']
+
+        for col in columnas_requeridas:
+            if col not in df.columns:
+                raise ValueError(f"❌ FALTA la columna requerida en el DataFrame: '{col}'")
+
+        for index, row in df.iterrows():
+            cursor.execute("""
+                REPLACE INTO stock (DNI, `Apellido y Nombre`, Subsegmento, `Clave Banco de la cuenta`,
+                                    `deuda total del cliente`, `Localidad`, `Provincia`, `Código Postal`, 
+                                    `días de mora Total Cliente`, `tramo de mora`, `rango etario`, `Genero`, 
+                                    `fecha_mes`)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                row['DNI'], row['Apellido y Nombre'], row['Subsegmento'], row['Clave Banco de la cuenta'],
+                row['deuda total del cliente'], row['Localidad'], row['Provincia'], row['Código Postal'],
+                row['días de mora Total Cliente'], row['tramo de mora'], row['rango etario'], row['Genero'],
+                row['fecha_mes']
+            ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    except mysql.connector.Error as err:
+        print(f"❌ Error MySQL: {err}")
+    except Exception as e:
+        print(f"❌ Error en la inserción de datos: {e}")
+
+def procesar_archivos_stock(directorio):
+    try:
+        for root, dirs, files in os.walk(directorio):
+            for file in files:
+                if file.endswith("STOCK DIARIO.xlsx"):
+                    archivo = os.path.join(root, file)
+                    print(f"\n📁 Procesando: {file}")
+                    df = procesar_archivo(archivo)
+                    if df is not None:
+                        insertar_en_mysql(df)
+    except Exception as e:
+        print(f"❌ Error recorriendo archivos: {e}")
+
+# Ejecutar
+directorio_principal = r"C:\Users\Usuario\Desktop\Carteras\Supervielle\Stock"
+procesar_archivos_stock(directorio_principal)
