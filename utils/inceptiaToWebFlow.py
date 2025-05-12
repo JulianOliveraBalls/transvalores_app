@@ -26,6 +26,7 @@ def exportar_eventos(df):
         "No Interesado": "AVITITUL",
         "No Titular": "NOCONTESTA",
         "Ocupado": "NOCONTESTA",
+        "Indefinido": "NOCONTESTA",
         "Titular Cortó": "AVITITUL",
         "Transferir": "AVITITUL"
     }
@@ -43,7 +44,6 @@ def exportar_eventos(df):
 
     def consolidar(grupo):
         if all(grupo['EVENTO'] == "NOCONTESTA"):
-            # Eliminar duplicados exactos por (Telefono, Estado)
             unicos = grupo[['Telefono', 'Estado']].drop_duplicates()
             telefonos = unicos['Telefono'].astype(str).tolist()
             estados = unicos['Estado'].astype(str).tolist()
@@ -58,8 +58,12 @@ def exportar_eventos(df):
             })
         else:
             grupo_avititul = grupo[grupo['EVENTO'] == 'AVITITUL'].copy()
-            grupo_avititul = grupo_avititul.sort_values(by='PRIORIDAD', na_position='last')
-            fila = grupo_avititul.iloc[0]
+            if grupo_avititul.empty:
+                fila = grupo.iloc[0]
+            else:
+                grupo_avititul = grupo_avititul.sort_values(by='PRIORIDAD', na_position='last')
+                fila = grupo_avititul.iloc[0]
+
             return pd.Series({
                 'FECHA': fila['FECHA'],
                 'HORA': fila['HORA'],
@@ -70,4 +74,9 @@ def exportar_eventos(df):
             })
 
     df_export = df.groupby('CARPETA', as_index=False).apply(consolidar).reset_index(drop=True)
+
+    # (Opcional) Filtrar filas con evento desconocido
+    df_export = df_export[df_export['EVENTO'] != "DESCONOCIDO"]
+
     return df_export
+
