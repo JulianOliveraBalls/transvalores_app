@@ -9,18 +9,19 @@ def predecir_genero(nombre_completo):
     
     try:
         partes = nombre_completo.split()
-        if len(partes) < 2:
+        if len(partes) < 1:
             return "desconocido"
         
-        posible_nombre = partes[1]
-        genero = d.get_gender(posible_nombre)
-
+        # Intentar con el primer nombre
+        genero = d.get_gender(partes[0])
         if genero in ["male", "mostly_male"]:
             return "masculino"
         elif genero in ["female", "mostly_female"]:
             return "femenino"
-        else:
-            genero2 = d.get_gender(partes[0])
+        
+        # Si no es concluyente, intentar con el segundo (si hay)
+        if len(partes) > 1:
+            genero2 = d.get_gender(partes[1])
             if genero2 in ["male", "mostly_male"]:
                 return "masculino"
             elif genero2 in ["female", "mostly_female"]:
@@ -37,3 +38,4 @@ def detectar_genero(df):
     
     df["Género"] = df["Nombre"].apply(predecir_genero)
     return df
+
