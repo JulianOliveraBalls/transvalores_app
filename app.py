@@ -4,6 +4,8 @@ from io import BytesIO
 from PIL import Image
 from utils.script_gender import detectar_genero
 from utils.inceptiaToWebFlow import exportar_eventos
+from utils.CleanStockSPV import reducir_columnas
+
 
 # Configurar la página
 st.set_page_config(page_title="Transvalores App", layout="centered")
@@ -16,8 +18,10 @@ st.title("📊 Herramienta de procesamiento Excel / CSV / TXT")
 # Selector de opción
 opcion = st.selectbox("Seleccioná qué querés hacer:", [
     "Detectar género",
-    "Exportar eventos IA"
+    "Exportar eventos IA",
+    "Clean Superville Stock"
 ])
+
 
 # Ejemplos de estructura por cada opción
 ejemplos = {
@@ -30,8 +34,20 @@ ejemplos = {
         "Codigo": [1234, 5678],
         "Estado": ["Correo de Voz", "Cortó Llamada"],
         "Telefono": ["1134567890", "1198765432"]
+    }),
+        "Clean Superville Stock": pd.DataFrame({
+        "DNI": [12345678, 87654321],
+        "Apellido y Nombre": ["JUAN PEREZ", "MARÍA GOMEZ"],
+        "Clave Banco de la cuenta": [111, 222],
+        "Subsegmento": ["ALTO", "BAJO"],
+        "deuda total del cliente": [50000, 30000],
+        "Localidad": ["CABA", "LA PLATA"],
+        "Provincia": ["BUENOS AIRES", "BUENOS AIRES"],
+        "grupo del producto": ["TC", "PP"],
+        "días de mora Total Cliente": [45, 30]
     })
 }
+    
 
 # Mostrar preview del formato esperado
 st.markdown("📌 *Formato esperado para esta opción:*")
@@ -57,6 +73,9 @@ if archivo:
             df = detectar_genero(df)
         elif opcion == "Exportar eventos IA":
             df = exportar_eventos(df)
+        elif opcion == "Clean Superville Stock":
+            df = reducir_columnas(df)
+        
 
         # Mostrar resultado
         st.success("✅ Procesamiento completo")
