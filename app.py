@@ -73,16 +73,16 @@ try:
             res = df[df[col_id] == str(cedula_input).strip()].copy()
             
             if not res.empty:
-                # --- FIX DE FECHAS (IGNORANDO HORA) ---
+                # --- FIX DEFINITIVO DE FECHAS ---
                 col_fecha = 'Fecha_Pago' if 'Fecha_Pago' in res.columns else 'Fecha'
                 
-                # 1. Convertimos a string, cortamos por el espacio para sacar la hora y nos quedamos con la fecha
+                # 1. Extraemos solo la parte de la fecha (antes del espacio de la hora)
                 res['Vencimiento_Str'] = res[col_fecha].astype(str).str.split(' ').str[0]
                 
-                # 2. Convertimos a datetime (ahora solo tiene la fecha)
-                res['Vencimiento'] = pd.to_datetime(res['Vencimiento_Str'], dayfirst=True, errors='coerce')
+                # 2. Forzamos el formato Día/Mes/Año estrictamente
+                res['Vencimiento'] = pd.to_datetime(res['Vencimiento_Str'], format='%d/%m/%Y', errors='coerce')
                 
-                # 3. Fecha de hoy (sin hora)
+                # 3. Fecha de hoy normalizada a medianoche
                 hoy = pd.Timestamp.now().normalize()
                 
                 col_monto_act = 'Monto_por_cobrar_actual'
@@ -90,6 +90,7 @@ try:
 
                 def calcular_mora(fila):
                     vto = fila['Vencimiento']
+                    # Verificamos que sea una fecha válida y que tenga monto pendiente
                     if pd.notnull(vto) and fila[col_monto_act] > 0:
                         if vto < hoy:
                             return (hoy - vto).days
@@ -117,11 +118,12 @@ try:
                 columnas_interes = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', col_monto_act]
                 cols_finales = [c for c in columnas_interes if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
                 
-                # Formateo visual de la fecha (solo fecha)
                 res_display = res[cols_finales].copy()
+                # Ordenamos y formateamos la fecha para el usuario
+                res_display = res_display.sort_values('Vencimiento')
                 res_display['Vencimiento'] = res_display['Vencimiento'].dt.strftime('%d/%m/%Y')
                 
-                st.dataframe(res_display.sort_values('Vencimiento'), use_container_width=True, hide_index=True)
+                st.dataframe(res_display, use_container_width=True, hide_index=True)
 
                 # --- 3. CONTACTO ---
                 with st.expander("📞 Ver Datos de Contacto", expanded=True):
