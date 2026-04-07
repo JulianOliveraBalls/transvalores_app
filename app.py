@@ -97,9 +97,9 @@ st.markdown(
 st.markdown(
     f"""
     <div class="logo-container">
-        <img src="https://via.placeholder.com/200x80?text=Logo+1" class="logo">
+        <img src="https://cdn.prod.website-files.com/632db6924fcc7661685adfa8/649e418aa37a8933337ef18d_cashea-v3.png" class="logo">
         <h1 class="title">💰 Calculador Cashea</h1>
-        <img src="https://via.placeholder.com/200x80?text=Logo+2" class="logo">
+        <img src="https://app.mailzilla.com.ar/frontend/assets/files/customer/yf195vfqvc266/Gemini_Generated_Image_avzdunavzdunavzd__1_-removebg-preview.png" class="logo">
     </div>
     """,
     unsafe_allow_html=True
