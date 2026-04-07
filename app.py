@@ -60,20 +60,11 @@ def load_data_from_subfolder(root_id):
 st.set_page_config(page_title="Mora Transvalores", layout="wide")
 st.title("🔎 Consulta de Cuotas y Días de Mora")
 
-# 🔥 Toggle de debug
-debug = st.checkbox("🛠️ Modo debug")
-
 try:
     df, nombre_archivo = load_data_from_subfolder(ID_CARPETA_RAIZ)
     
     if df is not None:
         st.success(f"Archivo cargado: {nombre_archivo}")
-
-        if debug:
-            st.subheader("📄 Preview CSV original")
-            st.write(df.head(10))
-            st.write("Columnas:", df.columns.tolist())
-
         cedula_input = st.text_input("Ingrese Cédula / DNI del cliente:")
         
         if cedula_input:
@@ -82,73 +73,65 @@ try:
             res = df[df[col_id] == str(cedula_input).strip()].copy()
             
             if not res.empty:
-
-                col_fecha = 'Fecha_Pago' if 'Fecha_Pago' in res.columns else 'Fecha'
-                col_monto_act = 'Monto_por_cobrar_actual'
-                col_monto_orig = 'Monto' if 'Monto' in res.columns else 'Monto_por_cobrar'
-
-                if debug:
-                    st.subheader("📅 Datos crudos de fecha")
-                    st.write(res[col_fecha].head(10))
-
-                # --- PARSEO SIMPLE Y ROBUSTO ---
-                res['Vencimiento'] = pd.to_datetime(
-                    res[col_fecha].astype(str).str.strip(),
-                    dayfirst=True,
-                    errors='coerce'
-                )
-
-                # --- Montos ---
-                res[col_monto_act] = pd.to_numeric(res[col_monto_act], errors='coerce')
-                res[col_monto_orig] = pd.to_numeric(res[col_monto_orig], errors='coerce')
-
+                # --- PROCESAMIENTO DE FECHAS ---
+                col_fecha = 'Fecha_Pago'
+                # Forzamos la conversión quitando la hora primero
+                res['Vencimiento'] = pd.to_datetime(res[col_fecha].astype(str).str.split(' ').str[0], dayfirst=True, errors='coerce')
+                
+                # Hoy: 07/04/2026
                 hoy = pd.Timestamp.now().normalize()
+                
+                col_monto_act = 'Monto_por_cobrar_actual'
+                col_monto_orig = 'Monto_por_cobrar' if 'Monto_por_cobrar' in res.columns else 'Monto'
 
-                # --- Cálculo mora ---
-                res['Dias_Mora'] = (hoy - res['Vencimiento']).dt.days
+                # --- LÓGICA DE MORA REFORZADA ---
+                def calcular_mora(vto, monto_pendiente):
+                    if pd.isnull(vto) or monto_pendiente <= 0:
+                        return 0
+                    # Quitamos horas/zonas horarias para comparar solo fechas
+                    vto_puro = vto.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+                    if vto_puro < hoy:
+                        delta = hoy - vto_puro
+                        return delta.days
+                    return 0
 
-                res['Dias_Mora'] = res['Dias_Mora'].fillna(0)
-                res.loc[res['Dias_Mora'] < 0, 'Dias_Mora'] = 0
-                res.loc[res[col_monto_act] <= 0, 'Dias_Mora'] = 0
-                res['Dias_Mora'] = res['Dias_Mora'].astype(int)
+                res['Dias_Mora'] = res.apply(lambda x: calcular_mora(x['Vencimiento'], x[col_monto_act]), axis=1)
 
-                # 🔍 DEBUG CLAVE
-                if debug:
-                    st.subheader("🧠 Resultado parseo fechas")
-                    st.write(res[[col_fecha, 'Vencimiento']].head(10))
-
-                    st.write("NaT en fechas:", res['Vencimiento'].isna().sum())
-
-                    st.subheader("💰 Montos")
-                    st.write(res[[col_monto_act, col_monto_orig]].head(10))
-
-                    st.subheader("📊 Mora calculada")
-                    st.write(res[['Vencimiento', 'Dias_Mora']].head(10))
-
-                # --- RESUMEN ---
+                # --- 1. TOTALIZADOS ---
                 st.markdown("### 📊 Resumen de Deuda")
                 t1, t2, t3 = st.columns(3)
                 with t1:
-                    st.metric("Días de Mora (Máx)", f"{int(res['Dias_Mora'].max())} días")
+                    max_mora = int(res['Dias_Mora'].max())
+                    st.metric("Días de Mora (Máx)", f"{max_mora} días")
                 with t2:
-                    st.metric("Suma Monto Original", f"${res[col_monto_orig].sum():,.2f}")
+                    total_orig = res[col_monto_orig].sum()
+                    st.metric("Suma Monto Original", f"${total_orig:,.2f}")
                 with t3:
-                    st.metric("Total Pendiente Actual", f"${res[col_monto_act].sum():,.2f}")
+                    total_actual = res[col_monto_act].sum()
+                    st.metric("Total Pendiente Actual", f"${total_actual:,.2f}")
 
                 st.divider()
 
-                # --- DETALLE ---
+                # --- 2. DETALLE ---
                 st.markdown("### 💳 Detalle de Cuotas")
-                res_display = res[['Dias_Mora', 'Vencimiento', col_monto_orig, col_monto_act]].copy()
-                res_display = res_display.sort_values('Vencimiento')
+                # Armamos la lista de columnas que existen realmente
+                columnas_posibles = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', col_monto_act]
+                cols_presentes = [c for c in columnas_posibles if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
+                
+                res_display = res[cols_presentes].copy()
                 res_display['Vencimiento'] = res_display['Vencimiento'].dt.strftime('%d/%m/%Y')
+                
+                st.dataframe(res_display.sort_values('Dias_Mora', ascending=False), use_container_width=True, hide_index=True)
 
-                st.dataframe(res_display, use_container_width=True, hide_index=True)
-
+                # --- 3. CONTACTO ---
+                with st.expander("📞 Ver Datos de Contacto", expanded=True):
+                    c1, c2, c3 = st.columns(3)
+                    with c1: st.write(f"**Nombre:** {res['Nombre_usuario'].iloc[0]}")
+                    with c2: st.write(f"**Email:** {res['Email_usuario'].iloc[0]}")
+                    with c3: st.write(f"**Teléfono:** {res['Telefono'].iloc[0]}")
             else:
                 st.warning("DNI no encontrado.")
     else:
         st.error(nombre_archivo)
-
 except Exception as e:
     st.error(f"Error: {e}")
