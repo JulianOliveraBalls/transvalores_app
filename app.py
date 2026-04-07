@@ -79,9 +79,10 @@ try:
                 col_monto_orig = 'Monto' if 'Monto' in res.columns else 'Monto_por_cobrar'
 
                 # --- 1. Parseo robusto de fechas ---
+                # --- Parseo ESTRICTO correcto ---
                 res['Vencimiento'] = pd.to_datetime(
-                    res[col_fecha],
-                    dayfirst=True,
+                    res[col_fecha].astype(str).str.strip(),
+                    format='%d/%m/%Y %H:%M',
                     errors='coerce'
                 )
 
