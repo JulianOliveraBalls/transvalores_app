@@ -16,42 +16,36 @@ def get_drive_service():
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return build('drive', 'v3', credentials=creds)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def load_data_from_subfolder(root_id):
     service = get_drive_service()
     ahora = datetime.now()
     
-    # 1. Mapeo de meses para buscar la carpeta (ej: "Abril 2026")
-    meses = {
-        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
-        5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
-        9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-    }
-    nombre_carpeta_mes = f"{meses[ahora.month]} {ahora.year}"
+    meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
+             7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
     
-    # 2. Buscar la carpeta del mes
+    # 1. Buscar carpeta del mes (ej: "Abril 2026")
     q_folder = f"'{root_id}' in parents and name contains '{meses[ahora.month]}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    res_folder = service.files().list(q=q_folder, fields="files(id, name)").execute()
+    res_folder = service.files().list(q=q_folder).execute()
     folders = res_folder.get('files', [])
     
     if not folders:
-        return None, f"No se encontró la carpeta del mes: {nombre_carpeta_mes}"
+        return None, f"No se encontró carpeta para {meses[ahora.month]}"
     
     folder_id = folders[0]['id']
     
-    # 3. Buscar el CSV dentro de esa carpeta
-    q_csv = f"'{folder_id}' in parents and mimeType = 'text/csv' and trashed = false"
-    res_csv = service.files().list(q=q_csv, fields="files(id, name)").execute()
+    # 2. Buscar el archivo que diga "Stock" dentro de esa carpeta
+    q_csv = f"'{folder_id}' in parents and name contains 'Stock' and trashed = false"
+    res_csv = service.files().list(q=q_csv).execute()
     csv_files = res_csv.get('files', [])
     
     if not csv_files:
-        return None, f"No se encontró ningún archivo CSV dentro de la carpeta {nombre_carpeta_mes}"
+        return None, "No se encontró el archivo de Stock (.csv)"
     
-    # Tomamos el primero que encuentre
     file_id = csv_files[0]['id']
     file_name = csv_files[0]['name']
     
-    # 4. Descarga y lectura
+    # 3. Descarga
     request = service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
@@ -60,52 +54,66 @@ def load_data_from_subfolder(root_id):
         status, done = downloader.next_chunk()
     
     fh.seek(0)
+    
+    # 4. Lectura Robusta con detección de separador y encoding
     try:
-        df = pd.read_csv(fh, encoding='utf-8', sep=None, engine='python')
+        # engine='python' + sep=None hace que pandas adivine si es , o ;
+        df = pd.read_csv(fh, sep=None, engine='python', encoding='utf-8')
     except:
         fh.seek(0)
-        df = pd.read_csv(fh, encoding='latin-1', sep=None, engine='python')
+        df = pd.read_csv(fh, sep=None, engine='python', encoding='latin-1')
         
+    # LIMPIEZA INMEDIATA DE COLUMNAS
+    df.columns = [c.strip().replace('#', '').replace(' ', '_') for c in df.columns]
     return df, file_name
 
 # --- INTERFAZ ---
-st.set_page_config(page_title="Gestión de Mora - Transvalores", layout="wide")
-st.title("🔎 Consulta de Cuotas y Días de Mora")
+st.set_page_config(page_title="Mora Transvalores", layout="wide")
+st.title("🔎 Consulta de Mora")
 
 try:
     df, nombre_archivo = load_data_from_subfolder(ID_CARPETA_RAIZ)
     
     if df is not None:
-        st.success(f"Conectado: {nombre_archivo}")
+        st.success(f"Archivo cargado: {nombre_archivo}")
         
-        cedula_input = st.text_input("Ingrese Cédula / DNI:", placeholder="Ej: 12345678")
+        cedula_input = st.text_input("Ingrese Cédula / DNI:")
         
         if cedula_input:
-            df['#Cedula'] = df['#Cedula'].astype(str).str.strip()
-            res = df[df['#Cedula'] == str(cedula_input)].copy()
+            # Buscamos la columna de cédula (ahora se llama 'Cedula' sin el # por la limpieza)
+            col_id = 'Cedula' if 'Cedula' in df.columns else df.columns[0]
+            
+            df[col_id] = df[col_id].astype(str).str.strip()
+            res = df[df[col_id] == str(cedula_input).strip()].copy()
             
             if not res.empty:
-                st.subheader(f"Cliente: {res['Nombre usuario'].iloc[0]}")
+                # Mostrar Info
+                nombre = res['Nombre_usuario'].iloc[0] if 'Nombre_usuario' in res.columns else "Cliente"
+                st.subheader(f"Cliente: {nombre}")
                 
-                # Cálculo de Mora
-                res['Fecha Pago'] = pd.to_datetime(res['Fecha Pago'], errors='coerce')
+                # Procesar Fechas y Mora
+                # Buscamos la columna de fecha (que ahora se llama Fecha_Pago por la limpieza)
+                col_fecha = 'Fecha_Pago' if 'Fecha_Pago' in res.columns else 'Fecha'
+                res['Fecha_vto'] = pd.to_datetime(res[col_fecha], dayfirst=True, errors='coerce')
+                
                 hoy = datetime.now()
+                # Columna de monto (Monto_por_cobrar_actual)
+                col_monto = 'Monto_por_cobrar_actual'
                 
-                def calcular_mora(fila):
-                    if pd.notnull(fila['Fecha Pago']) and fila['Monto por cobrar actual'] > 0:
-                        if fila['Fecha Pago'] < hoy:
-                            return (hoy - fila['Fecha Pago']).days
-                    return 0
-
-                res['Días de Mora'] = res.apply(calcular_mora, axis=1)
+                res['Dias_Mora'] = res.apply(
+                    lambda x: (hoy - x['Fecha_vto']).days if pd.notnull(x['Fecha_vto']) and x[col_monto] > 0 and x['Fecha_vto'] < hoy else 0, 
+                    axis=1
+                )
                 
                 # Mostrar Tabla
-                columnas = ['ID cuota', '#Cuota', 'Fecha Pago', 'Monto por cobrar actual', 'Días de Mora', 'Tramo actual']
-                st.dataframe(res[columnas].rename(columns={'Fecha Pago': 'Vencimiento'}), use_container_width=True)
+                st.dataframe(res.sort_values('Fecha_vto'), use_container_width=True)
             else:
                 st.warning("DNI no encontrado.")
+                # Debug por si acaso:
+                with st.expander("Ver columnas detectadas"):
+                    st.write(list(df.columns))
     else:
-        st.error(df_error := nombre_archivo)
+        st.error(nombre_archivo)
 
 except Exception as e:
-    st.error(f"Error general: {e}")
+    st.error(f"Error: {e}")
