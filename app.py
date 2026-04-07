@@ -57,8 +57,47 @@ def load_data_from_subfolder(root_id):
         return None, f"Error al cargar Drive: {e}"
 
 # --- INTERFAZ ---
-st.set_page_config(page_title="Mora Transvalores", layout="wide")
-st.title("🔎 Consulta de Cuotas y Días de Mora")
+st.set_page_config(
+    page_title="Calculador Cashea",
+    layout="wide",
+    page_icon="💰"
+)
+
+# --- ESTILO Y LOGO ---
+st.markdown(
+    f"""
+    <style>
+        .stApp {{
+            background-color: #fdfa3d;
+        }}
+        .logo-container {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }}
+        .logo {{
+            height: 80px;
+        }}
+        .title {{
+            text-align: center;
+            color: #333;
+        }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    f"""
+    <div class="logo-container">
+        <img src="https://via.placeholder.com/200x80?text=Logo+1" class="logo">
+        <h1 class="title">💰 Calculador Cashea</h1>
+        <img src="https://via.placeholder.com/200x80?text=Logo+2" class="logo">
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 try:
     df, nombre_archivo = load_data_from_subfolder(ID_CARPETA_RAIZ)
@@ -73,11 +112,14 @@ try:
             res = df[df[col_id] == str(cedula_input).strip()].copy()
 
             if not res.empty:
-                # --- PROCESAMIENTO DE FECHAS (CORREGIDO) ---
+                # --- FILTRAR CUOTAS PAGADAS O CANCELADAS ---
+                res = res[~res['Tramo_actual'].isin(['Pagado', 'Cancelada'])]
+
+                # --- PROCESAMIENTO DE FECHAS ---
                 col_fecha = 'Fecha_Pago'
                 res['Vencimiento'] = pd.to_datetime(
                     res[col_fecha].astype(str).str.split(' ').str[0],
-                    format='%Y-%m-%d',  # Formato corregido
+                    format='%Y-%m-%d',
                     errors='coerce'
                 )
 
@@ -87,7 +129,7 @@ try:
                 col_monto_act = 'Monto_por_cobrar_actual'
                 col_monto_orig = 'Monto_por_cobrar' if 'Monto_por_cobrar' in res.columns else 'Monto'
 
-                # --- LÓGICA DE MORA (CORREGIDA) ---
+                # --- LÓGICA DE MORA ---
                 def calcular_mora(vto, monto_pendiente):
                     if pd.isnull(vto) or monto_pendiente <= 0:
                         return 0
@@ -101,11 +143,7 @@ try:
                     axis=1
                 )
 
-                # --- LOG: Mora calculada ---
-                st.markdown("### 📊 Mora calculada")
-                st.write(res[['Fecha_Pago', 'Vencimiento', 'Monto_por_cobrar_actual', 'Dias_Mora']].head(10))
-
-                # --- 1. TOTALIZADOS ---
+                # --- 1. TOTALIZADOS (FORMATO USD) ---
                 st.markdown("### 📊 Resumen de Deuda")
                 t1, t2, t3 = st.columns(3)
                 with t1:
@@ -113,10 +151,10 @@ try:
                     st.metric("Días de Mora (Máx)", f"{max_mora} días")
                 with t2:
                     total_orig = res[col_monto_orig].sum()
-                    st.metric("Suma Monto Original", f"${total_orig:,.2f}")
+                    st.metric("Suma Monto Original", f"USD {total_orig:,.2f}")
                 with t3:
                     total_actual = res[col_monto_act].sum()
-                    st.metric("Total Pendiente Actual", f"${total_actual:,.2f}")
+                    st.metric("Total Pendiente Actual", f"USD {total_actual:,.2f}")
 
                 st.divider()
 
@@ -127,6 +165,8 @@ try:
 
                 res_display = res[cols_presentes].copy()
                 res_display['Vencimiento'] = res_display['Vencimiento'].dt.strftime('%d/%m/%Y')
+                res_display[col_monto_orig] = res_display[col_monto_orig].apply(lambda x: f"USD {x:,.2f}")
+                res_display[col_monto_act] = res_display[col_monto_act].apply(lambda x: f"USD {x:,.2f}")
 
                 st.dataframe(res_display.sort_values('Dias_Mora', ascending=False), use_container_width=True, hide_index=True)
 
