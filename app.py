@@ -6,7 +6,14 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from datetime import datetime
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(
+    page_title="Calculador Cashea",
+    layout="wide",
+    page_icon="💰"
+)
+
+# --- CONFIGURACIÓN DRIVE ---
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 ID_CARPETA_RAIZ = "10ZvtViZ0RrPatahlFpWxFr-zwa-AoRXC"
 
@@ -56,55 +63,68 @@ def load_data_from_subfolder(root_id):
     except Exception as e:
         return None, f"Error al cargar Drive: {e}"
 
-# --- INTERFAZ ---
-st.set_page_config(
-    page_title="Calculador Cashea",
-    layout="wide",
-    page_icon="💰"
-)
-
-# --- ESTILO Y LOGO ---
+# --- ESTILO CSS PERSONALIZADO ---
 st.markdown(
-    f"""
+    """
     <style>
-        .stApp {{
+        .stApp {
             background-color: white;
-        }}
-        .logo-container {{
+        }
+        /* Contenedor Principal del Header */
+        .header-container {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
-        }}
-        .logo {{
-            height: 80px;
-        }}
-        .title {{
+            padding: 10px 20px;
+            margin-bottom: 25px;
+            border-bottom: 1px solid #f0f2f6;
+        }
+        /* Logo Izquierdo (Cashea) */
+        .logo-left {
+            height: 40px;
+            object-fit: contain;
+        }
+        /* Título Centralizado */
+        .title-center {
+            flex-grow: 1;
             text-align: center;
-            color: #333;
-        }}
-        .highlight {{
-            background-color: #fdfa3d;
-            padding: 0.5rem;
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
-        }}
+            font-size: 26px !important;
+            font-weight: 800;
+            color: #1A1C1E;
+            margin: 0;
+        }
+        /* Logo Derecho (Personalizado) */
+        .logo-right {
+            height: 55px;
+            object-fit: contain;
+        }
+        /* Ajuste para dispositivos móviles */
+        @media (max-width: 768px) {
+            .header-container {
+                flex-direction: column;
+                text-align: center;
+                gap: 10px;
+            }
+            .logo-left, .logo-right { height: 40px; }
+        }
     </style>
     """,
     unsafe_allow_html=True
 )
 
+# --- RENDERIZADO DEL HEADER ---
 st.markdown(
     f"""
-    <div class="logo-container">
-        <img src="https://cdn.prod.website-files.com/632db6924fcc7661685adfa8/649e418aa37a8933337ef18d_cashea-v3.png" class="logo">
-        <h1 class="title">💰 Calculador Cashea</h1>
-        <img src="https://app.mailzilla.com.ar/frontend/assets/files/customer/yf195vfqvc266/Gemini_Generated_Image_avzdunavzdunavzd__1_-removebg-preview.png" class="logo">
+    <div class="header-container">
+        <img src="https://cdn.prod.website-files.com/632db6924fcc7661685adfa8/649e418aa37a8933337ef18d_cashea-v3.png" class="logo-left">
+        <h1 class="title-center">💰 Calculador Cashea</h1>
+        <img src="https://app.mailzilla.com.ar/frontend/assets/files/customer/yf195vfqvc266/Gemini_Generated_Image_avzdunavzdunavzd__1_-removebg-preview.png" class="logo-right">
     </div>
     """,
     unsafe_allow_html=True
 )
 
+# --- LÓGICA DE DATOS ---
 try:
     df, nombre_archivo = load_data_from_subfolder(ID_CARPETA_RAIZ)
 
@@ -126,13 +146,13 @@ try:
                     errors='coerce'
                 )
 
-                # Hoy: 07/04/2026
+                # Hoy (ajustado a la fecha del sistema)
                 hoy = pd.Timestamp.now().normalize()
 
                 col_monto_act = 'Monto_por_cobrar_actual'
                 col_monto_orig = 'Monto_por_cobrar' if 'Monto_por_cobrar' in res.columns else 'Monto'
 
-                # --- LÓGICA DE MORA (EXCLUYE PAGADO/CANCELADA) ---
+                # --- LÓGICA DE MORA ---
                 def calcular_mora(vto, monto_pendiente, tramo_actual):
                     if pd.isnull(vto) or monto_pendiente <= 0 or tramo_actual in ['Pagado', 'Cancelada']:
                         return 0
@@ -146,8 +166,8 @@ try:
                     axis=1
                 )
 
-                # --- 1. TOTALIZADOS (FORMATO USD) ---
-                st.markdown("### 📊 Resumen de Deuda", unsafe_allow_html=True)
+                # --- 1. TOTALIZADOS ---
+                st.markdown("### 📊 Resumen de Deuda")
                 t1, t2, t3 = st.columns(3)
                 with t1:
                     max_mora = int(res['Dias_Mora'].max())
@@ -161,8 +181,8 @@ try:
 
                 st.divider()
 
-                # --- 2. DETALLE (TODAS LAS CUOTAS, INCLUYENDO PAGADAS/CANCELADAS) ---
-                st.markdown("### 💳 Detalle de Cuotas", unsafe_allow_html=True)
+                # --- 2. DETALLE DE CUOTAS ---
+                st.markdown("### 💳 Detalle de Cuotas")
                 columnas_posibles = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', col_monto_act]
                 cols_presentes = [c for c in columnas_posibles if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
 
@@ -184,4 +204,4 @@ try:
     else:
         st.error(nombre_archivo)
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Error de ejecución: {e}")
