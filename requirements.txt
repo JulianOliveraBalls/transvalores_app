@@ -1,0 +1,7 @@
+pandas
+gender-guesser
+openpyxl
+streamlit 
+gspread 
+oauth2client 
+pandas
