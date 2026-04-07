@@ -17,7 +17,7 @@ st.title("Test de Carpeta")
 
 try:
     service = get_drive_service()
-    ID_CARPETA = "1UU3CQl7GY1qnZ3QByuLnxNcT2XfWtaUL"
+    ID_CARPETA = "10ZvtViZ0RrPatahlFpWxFr-zwa-AoRXC"
     
     query = f"'{ID_CARPETA}' in parents and trashed = false"
     results = service.files().list(q=query, fields="files(id, name)").execute()
