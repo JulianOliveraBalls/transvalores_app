@@ -20,7 +20,6 @@ def get_drive_service():
 def load_data_from_subfolder(root_id):
     service = get_drive_service()
     ahora = datetime.now()
-    
     meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
              7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
     
@@ -28,21 +27,16 @@ def load_data_from_subfolder(root_id):
         q_folder = f"'{root_id}' in parents and name contains '{meses[ahora.month]}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         res_folder = service.files().list(q=q_folder).execute()
         folders = res_folder.get('files', [])
-        
-        if not folders:
-            return None, f"No se encontró carpeta para {meses[ahora.month]}"
+        if not folders: return None, f"No se encontró carpeta para {meses[ahora.month]}"
         
         folder_id = folders[0]['id']
         q_csv = f"'{folder_id}' in parents and name contains 'Stock' and trashed = false"
         res_csv = service.files().list(q=q_csv).execute()
         csv_files = res_csv.get('files', [])
-        
-        if not csv_files:
-            return None, "No se encontró el archivo de Stock (.csv)"
+        if not csv_files: return None, "No se encontró el archivo de Stock (.csv)"
         
         file_id = csv_files[0]['id']
         file_name = csv_files[0]['name']
-        
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
@@ -71,7 +65,7 @@ try:
     
     if df is not None:
         st.success(f"Archivo cargado: {nombre_archivo}")
-        cedula_input = st.text_input("Ingrese Cédula / DNI del cliente:", placeholder="Ej: 12345678")
+        cedula_input = st.text_input("Ingrese Cédula / DNI del cliente:")
         
         if cedula_input:
             col_id = 'Cedula' if 'Cedula' in df.columns else df.columns[0]
@@ -79,20 +73,24 @@ try:
             res = df[df[col_id] == str(cedula_input).strip()].copy()
             
             if not res.empty:
-                # --- PROCESAMIENTO ---
+                # --- FIX DE FECHAS (IGNORANDO HORA) ---
                 col_fecha = 'Fecha_Pago' if 'Fecha_Pago' in res.columns else 'Fecha'
-                res['Vencimiento'] = pd.to_datetime(res[col_fecha], dayfirst=True, errors='coerce')
                 
-                # Normalizamos hoy a medianoche para comparar solo fechas
+                # 1. Convertimos a string, cortamos por el espacio para sacar la hora y nos quedamos con la fecha
+                res['Vencimiento_Str'] = res[col_fecha].astype(str).str.split(' ').str[0]
+                
+                # 2. Convertimos a datetime (ahora solo tiene la fecha)
+                res['Vencimiento'] = pd.to_datetime(res['Vencimiento_Str'], dayfirst=True, errors='coerce')
+                
+                # 3. Fecha de hoy (sin hora)
                 hoy = pd.Timestamp.now().normalize()
+                
                 col_monto_act = 'Monto_por_cobrar_actual'
                 col_monto_orig = 'Monto' if 'Monto' in res.columns else 'Monto_por_cobrar'
 
-                # Cálculo de mora forzando normalización de fechas
                 def calcular_mora(fila):
-                    if pd.notnull(fila['Vencimiento']) and fila[col_monto_act] > 0:
-                        # Quitamos zona horaria y normalizamos a medianoche
-                        vto = fila['Vencimiento'].replace(tzinfo=None).replace(hour=0, minute=0, second=0, microsecond=0)
+                    vto = fila['Vencimiento']
+                    if pd.notnull(vto) and fila[col_monto_act] > 0:
                         if vto < hoy:
                             return (hoy - vto).days
                     return 0
@@ -106,43 +104,34 @@ try:
                     max_mora = int(res['Dias_Mora'].max())
                     st.metric("Días de Mora (Máx)", f"{max_mora} días")
                 with t2:
-                    # Suma de monto original (Monto por cobrar)
                     total_orig = res[col_monto_orig].sum()
                     st.metric("Suma Monto Original", f"${total_orig:,.2f}")
                 with t3:
-                    # Suma de monto actual (Monto por cobrar actual)
                     total_actual = res[col_monto_act].sum()
                     st.metric("Total Pendiente Actual", f"${total_actual:,.2f}")
 
                 st.divider()
 
-                # --- 2. DATOS DE LA DEUDA ---
+                # --- 2. DETALLE ---
                 st.markdown("### 💳 Detalle de Cuotas")
-                columnas_interes = [
-                    'ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 
-                    'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', 
-                    col_monto_act
-                ]
+                columnas_interes = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', col_monto_act]
                 cols_finales = [c for c in columnas_interes if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
                 
-                st.dataframe(
-                    res[cols_finales].sort_values('Vencimiento'), 
-                    use_container_width=True,
-                    hide_index=True
-                )
+                # Formateo visual de la fecha (solo fecha)
+                res_display = res[cols_finales].copy()
+                res_display['Vencimiento'] = res_display['Vencimiento'].dt.strftime('%d/%m/%Y')
+                
+                st.dataframe(res_display.sort_values('Vencimiento'), use_container_width=True, hide_index=True)
 
-                # --- 3. DATOS DE CONTACTO ---
+                # --- 3. CONTACTO ---
                 with st.expander("📞 Ver Datos de Contacto", expanded=True):
                     c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.write(f"**Nombre:** {res['Nombre_usuario'].iloc[0] if 'Nombre_usuario' in res.columns else 'N/A'}")
-                    with c2:
-                        st.write(f"**Email:** {res['Email_usuario'].iloc[0] if 'Email_usuario' in res.columns else 'N/A'}")
-                    with c3:
-                        st.write(f"**Teléfono:** {res['Telefono'].iloc[0] if 'Telefono' in res.columns else 'N/A'}")
+                    with c1: st.write(f"**Nombre:** {res['Nombre_usuario'].iloc[0] if 'Nombre_usuario' in res.columns else 'N/A'}")
+                    with c2: st.write(f"**Email:** {res['Email_usuario'].iloc[0] if 'Email_usuario' in res.columns else 'N/A'}")
+                    with c3: st.write(f"**Teléfono:** {res['Telefono'].iloc[0] if 'Telefono' in res.columns else 'N/A'}")
             else:
-                st.warning(f"No se encontró el DNI {cedula_input}.")
+                st.warning("DNI no encontrado.")
     else:
         st.error(nombre_archivo)
 except Exception as e:
-    st.error(f"Error en la aplicación: {e}")
+    st.error(f"Error: {e}")
