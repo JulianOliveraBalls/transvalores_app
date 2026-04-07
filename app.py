@@ -183,7 +183,7 @@ try:
 
                 # --- 2. DETALLE DE CUOTAS ---
                 st.markdown("### 💳 Detalle de Cuotas")
-                columnas_posibles = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', col_monto_act]
+                columnas_posibles = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', col_monto_act]
                 cols_presentes = [c for c in columnas_posibles if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
 
                 res_display = res[cols_presentes].copy()
