@@ -68,13 +68,13 @@ st.markdown(
     f"""
     <style>
         .stApp {{
-            background-color: #fdfa3d;
+            background-color: white;
         }}
         .logo-container {{
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1rem;
         }}
         .logo {{
             height: 80px;
@@ -82,6 +82,12 @@ st.markdown(
         .title {{
             text-align: center;
             color: #333;
+        }}
+        .highlight {{
+            background-color: #fdfa3d;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
         }}
     </style>
     """,
@@ -112,9 +118,6 @@ try:
             res = df[df[col_id] == str(cedula_input).strip()].copy()
 
             if not res.empty:
-                # --- FILTRAR CUOTAS PAGADAS O CANCELADAS ---
-                res = res[~res['Tramo_actual'].isin(['Pagado', 'Cancelada'])]
-
                 # --- PROCESAMIENTO DE FECHAS ---
                 col_fecha = 'Fecha_Pago'
                 res['Vencimiento'] = pd.to_datetime(
@@ -129,9 +132,9 @@ try:
                 col_monto_act = 'Monto_por_cobrar_actual'
                 col_monto_orig = 'Monto_por_cobrar' if 'Monto_por_cobrar' in res.columns else 'Monto'
 
-                # --- LÓGICA DE MORA ---
-                def calcular_mora(vto, monto_pendiente):
-                    if pd.isnull(vto) or monto_pendiente <= 0:
+                # --- LÓGICA DE MORA (EXCLUYE PAGADO/CANCELADA) ---
+                def calcular_mora(vto, monto_pendiente, tramo_actual):
+                    if pd.isnull(vto) or monto_pendiente <= 0 or tramo_actual in ['Pagado', 'Cancelada']:
                         return 0
                     vto_puro = vto.normalize()
                     if vto_puro < hoy:
@@ -139,12 +142,12 @@ try:
                     return 0
 
                 res['Dias_Mora'] = res.apply(
-                    lambda x: calcular_mora(x['Vencimiento'], x[col_monto_act]),
+                    lambda x: calcular_mora(x['Vencimiento'], x[col_monto_act], x['Tramo_actual']),
                     axis=1
                 )
 
                 # --- 1. TOTALIZADOS (FORMATO USD) ---
-                st.markdown("### 📊 Resumen de Deuda")
+                st.markdown("### 📊 Resumen de Deuda", unsafe_allow_html=True)
                 t1, t2, t3 = st.columns(3)
                 with t1:
                     max_mora = int(res['Dias_Mora'].max())
@@ -158,8 +161,8 @@ try:
 
                 st.divider()
 
-                # --- 2. DETALLE ---
-                st.markdown("### 💳 Detalle de Cuotas")
+                # --- 2. DETALLE (TODAS LAS CUOTAS, INCLUYENDO PAGADAS/CANCELADAS) ---
+                st.markdown("### 💳 Detalle de Cuotas", unsafe_allow_html=True)
                 columnas_posibles = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', col_monto_act]
                 cols_presentes = [c for c in columnas_posibles if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
 
