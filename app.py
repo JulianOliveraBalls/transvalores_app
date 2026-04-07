@@ -73,30 +73,33 @@ try:
             res = df[df[col_id] == str(cedula_input).strip()].copy()
             
             if not res.empty:
-                # --- FIX DEFINITIVO DE FECHAS ---
+
                 col_fecha = 'Fecha_Pago' if 'Fecha_Pago' in res.columns else 'Fecha'
-                
-                # 1. Extraemos solo la parte de la fecha (antes del espacio de la hora)
-                res['Vencimiento_Str'] = res[col_fecha].astype(str).str.split(' ').str[0]
-                
-                # 2. Forzamos el formato Día/Mes/Año estrictamente
-                res['Vencimiento'] = pd.to_datetime(res['Vencimiento_Str'], format='%d/%m/%Y', errors='coerce')
-                
-                # 3. Fecha de hoy normalizada a medianoche
-                hoy = pd.Timestamp.now().normalize()
-                
                 col_monto_act = 'Monto_por_cobrar_actual'
                 col_monto_orig = 'Monto' if 'Monto' in res.columns else 'Monto_por_cobrar'
 
-                def calcular_mora(fila):
-                    vto = fila['Vencimiento']
-                    # Verificamos que sea una fecha válida y que tenga monto pendiente
-                    if pd.notnull(vto) and fila[col_monto_act] > 0:
-                        if vto < hoy:
-                            return (hoy - vto).days
-                    return 0
+                # --- 1. Parseo robusto de fechas ---
+                res['Vencimiento'] = pd.to_datetime(
+                    res[col_fecha],
+                    dayfirst=True,
+                    errors='coerce'
+                )
 
-                res['Dias_Mora'] = res.apply(calcular_mora, axis=1)
+                # --- 2. Asegurar montos numéricos ---
+                res[col_monto_act] = pd.to_numeric(res[col_monto_act], errors='coerce')
+                res[col_monto_orig] = pd.to_numeric(res[col_monto_orig], errors='coerce')
+
+                # --- 3. Fecha actual ---
+                hoy = pd.Timestamp.now().normalize()
+
+                # --- 4. Calcular días de mora ---
+                res['Dias_Mora'] = (hoy - res['Vencimiento']).dt.days
+
+                # --- 5. Reglas de negocio ---
+                res['Dias_Mora'] = res['Dias_Mora'].fillna(0)
+                res.loc[res['Dias_Mora'] < 0, 'Dias_Mora'] = 0
+                res.loc[res[col_monto_act] <= 0, 'Dias_Mora'] = 0
+                res['Dias_Mora'] = res['Dias_Mora'].astype(int)
 
                 # --- 1. TOTALIZADOS ---
                 st.markdown("### 📊 Resumen de Deuda")
@@ -119,7 +122,6 @@ try:
                 cols_finales = [c for c in columnas_interes if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
                 
                 res_display = res[cols_finales].copy()
-                # Ordenamos y formateamos la fecha para el usuario
                 res_display = res_display.sort_values('Vencimiento')
                 res_display['Vencimiento'] = res_display['Vencimiento'].dt.strftime('%d/%m/%Y')
                 
