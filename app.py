@@ -20,21 +20,21 @@ def get_drive_service():
 def load_data_from_subfolder(root_id):
     service = get_drive_service()
     ahora = datetime.now()
-    meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 
+    meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
              7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
-    
+
     try:
         q_folder = f"'{root_id}' in parents and name contains '{meses[ahora.month]}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         res_folder = service.files().list(q=q_folder).execute()
         folders = res_folder.get('files', [])
         if not folders: return None, f"No se encontró carpeta para {meses[ahora.month]}"
-        
+
         folder_id = folders[0]['id']
         q_csv = f"'{folder_id}' in parents and name contains 'Stock' and trashed = false"
         res_csv = service.files().list(q=q_csv).execute()
         csv_files = res_csv.get('files', [])
         if not csv_files: return None, "No se encontró el archivo de Stock (.csv)"
-        
+
         file_id = csv_files[0]['id']
         file_name = csv_files[0]['name']
         request = service.files().get_media(fileId=file_id)
@@ -43,14 +43,14 @@ def load_data_from_subfolder(root_id):
         done = False
         while not done:
             status, done = downloader.next_chunk()
-        
+
         fh.seek(0)
         try:
             df = pd.read_csv(fh, sep=None, engine='python', encoding='utf-8')
         except:
             fh.seek(0)
             df = pd.read_csv(fh, sep=None, engine='python', encoding='latin-1')
-            
+
         df.columns = [c.strip().replace('#', '').replace(' ', '_') for c in df.columns]
         return df, file_name
     except Exception as e:
@@ -62,40 +62,56 @@ st.title("🔎 Consulta de Cuotas y Días de Mora")
 
 try:
     df, nombre_archivo = load_data_from_subfolder(ID_CARPETA_RAIZ)
-    
+
     if df is not None:
         st.success(f"Archivo cargado: {nombre_archivo}")
         cedula_input = st.text_input("Ingrese Cédula / DNI del cliente:")
-        
+
         if cedula_input:
             col_id = 'Cedula' if 'Cedula' in df.columns else df.columns[0]
             df[col_id] = df[col_id].astype(str).str.strip()
             res = df[df[col_id] == str(cedula_input).strip()].copy()
-            
+
             if not res.empty:
+                # --- LOG: Datos crudos ---
+                st.markdown("### 📅 Datos crudos de fecha")
+                st.write(res[['Fecha_Pago']].head(10))
+
                 # --- PROCESAMIENTO DE FECHAS ---
                 col_fecha = 'Fecha_Pago'
-                # Forzamos la conversión quitando la hora primero
                 res['Vencimiento'] = pd.to_datetime(res[col_fecha].astype(str).str.split(' ').str[0], dayfirst=True, errors='coerce')
-                
+
+                # --- LOG: Resultado parseo fechas ---
+                st.markdown("### 🧠 Resultado parseo fechas")
+                st.write(res[['Fecha_Pago', 'Vencimiento']].head(10))
+                st.write("NaT en fechas:", res['Vencimiento'].isna().sum())
+
+                # --- LOG: Tipos de datos ---
+                st.markdown("### 📌 Tipos de datos")
+                st.write(res[['Fecha_Pago', 'Vencimiento', 'Monto_por_cobrar_actual']].dtypes)
+
                 # Hoy: 07/04/2026
                 hoy = pd.Timestamp.now().normalize()
-                
+                st.markdown(f"### 📅 Hoy: {hoy.strftime('%d/%m/%Y')}")
+
                 col_monto_act = 'Monto_por_cobrar_actual'
                 col_monto_orig = 'Monto_por_cobrar' if 'Monto_por_cobrar' in res.columns else 'Monto'
 
                 # --- LÓGICA DE MORA REFORZADA ---
                 def calcular_mora(vto, monto_pendiente):
+                    st.write(f"Debug - vto: {vto}, monto_pendiente: {monto_pendiente}")
                     if pd.isnull(vto) or monto_pendiente <= 0:
                         return 0
-                    # Quitamos horas/zonas horarias para comparar solo fechas
-                    vto_puro = vto.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+                    vto_puro = vto.normalize()
                     if vto_puro < hoy:
-                        delta = hoy - vto_puro
-                        return delta.days
+                        return (hoy - vto_puro).days
                     return 0
 
                 res['Dias_Mora'] = res.apply(lambda x: calcular_mora(x['Vencimiento'], x[col_monto_act]), axis=1)
+
+                # --- LOG: Mora calculada ---
+                st.markdown("### 📊 Mora calculada")
+                st.write(res[['Fecha_Pago', 'Vencimiento', 'Monto_por_cobrar_actual', 'Dias_Mora']].head(10))
 
                 # --- 1. TOTALIZADOS ---
                 st.markdown("### 📊 Resumen de Deuda")
@@ -114,13 +130,12 @@ try:
 
                 # --- 2. DETALLE ---
                 st.markdown("### 💳 Detalle de Cuotas")
-                # Armamos la lista de columnas que existen realmente
                 columnas_posibles = ['ID_cuota', 'Dias_Mora', 'Vencimiento', col_monto_orig, 'ID_orden', 'Tramo_actual', 'Tramo_inicial_Usuario', col_monto_act]
                 cols_presentes = [c for c in columnas_posibles if c in res.columns or c in ['Vencimiento', 'Dias_Mora']]
-                
+
                 res_display = res[cols_presentes].copy()
                 res_display['Vencimiento'] = res_display['Vencimiento'].dt.strftime('%d/%m/%Y')
-                
+
                 st.dataframe(res_display.sort_values('Dias_Mora', ascending=False), use_container_width=True, hide_index=True)
 
                 # --- 3. CONTACTO ---
