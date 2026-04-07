@@ -73,33 +73,22 @@ try:
             res = df[df[col_id] == str(cedula_input).strip()].copy()
 
             if not res.empty:
-                # --- LOG: Datos crudos ---
-                st.markdown("### 📅 Datos crudos de fecha")
-                st.write(res[['Fecha_Pago']].head(10))
-
-                # --- PROCESAMIENTO DE FECHAS ---
+                # --- PROCESAMIENTO DE FECHAS (CORREGIDO) ---
                 col_fecha = 'Fecha_Pago'
-                res['Vencimiento'] = pd.to_datetime(res[col_fecha].astype(str).str.split(' ').str[0], dayfirst=True, errors='coerce')
-
-                # --- LOG: Resultado parseo fechas ---
-                st.markdown("### 🧠 Resultado parseo fechas")
-                st.write(res[['Fecha_Pago', 'Vencimiento']].head(10))
-                st.write("NaT en fechas:", res['Vencimiento'].isna().sum())
-
-                # --- LOG: Tipos de datos ---
-                st.markdown("### 📌 Tipos de datos")
-                st.write(res[['Fecha_Pago', 'Vencimiento', 'Monto_por_cobrar_actual']].dtypes)
+                res['Vencimiento'] = pd.to_datetime(
+                    res[col_fecha].astype(str).str.split(' ').str[0],
+                    format='%Y-%m-%d',  # Formato corregido
+                    errors='coerce'
+                )
 
                 # Hoy: 07/04/2026
                 hoy = pd.Timestamp.now().normalize()
-                st.markdown(f"### 📅 Hoy: {hoy.strftime('%d/%m/%Y')}")
 
                 col_monto_act = 'Monto_por_cobrar_actual'
                 col_monto_orig = 'Monto_por_cobrar' if 'Monto_por_cobrar' in res.columns else 'Monto'
 
-                # --- LÓGICA DE MORA REFORZADA ---
+                # --- LÓGICA DE MORA (CORREGIDA) ---
                 def calcular_mora(vto, monto_pendiente):
-                    st.write(f"Debug - vto: {vto}, monto_pendiente: {monto_pendiente}")
                     if pd.isnull(vto) or monto_pendiente <= 0:
                         return 0
                     vto_puro = vto.normalize()
@@ -107,7 +96,10 @@ try:
                         return (hoy - vto_puro).days
                     return 0
 
-                res['Dias_Mora'] = res.apply(lambda x: calcular_mora(x['Vencimiento'], x[col_monto_act]), axis=1)
+                res['Dias_Mora'] = res.apply(
+                    lambda x: calcular_mora(x['Vencimiento'], x[col_monto_act]),
+                    axis=1
+                )
 
                 # --- LOG: Mora calculada ---
                 st.markdown("### 📊 Mora calculada")
