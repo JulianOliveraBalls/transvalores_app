@@ -8,23 +8,35 @@ from datetime import datetime
 st.set_page_config(page_title="Consulta de Mora Transvalores", layout="wide")
 
 def get_data():
-    # Definir el alcance y credenciales (usa st.secrets en la nube)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # En local usa el JSON, en la nube usa st.secrets
     try:
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"])
-    except:
-        # Fallback para local si no tenés secrets.toml configurado
-        st.error("No se encontraron las credenciales en Secrets.")
-        return pd.DataFrame()
+        # 1. Intentar cargar credenciales desde st.secrets
+        if "gcp_service_account" not in st.secrets:
+            st.error("❌ El bloque [gcp_service_account] no se encuentra en los Secrets de Streamlit.")
+            return pd.DataFrame()
+            
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        # Aseguramos que la private_key no tenga problemas de escapes
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        # 2. Intentar abrir el archivo
+        # REEMPLAZA ESTO por el nombre exacto de tu archivo
+        nombre_sheet = "TU_NOMBRE_DE_ARCHIVO_AQUI" 
+        sheet = client.open(nombre_sheet).sheet1 
+        
+        # 3. Traer datos
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
 
-    client = gspread.authorize(creds)
-    # ACA: Poné el nombre exacto de tu Google Sheet
-    sheet = client.open("Transvalores_2026-04").sheet1 
-    return pd.DataFrame(sheet.get_all_records())
-
-st.title("🔎 Consulta de Cuotas Pendientes y Mora")
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"❌ No se encontró el archivo: '{nombre_sheet}'. Revisá el nombre o compartilo con el email de la cuenta de servicio.")
+    except Exception as e:
+        st.error(f"⚠️ Error detallado: {e}")
+    return pd.DataFrame()
 
 try:
     df = get_data()
