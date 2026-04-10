@@ -29,21 +29,50 @@ def load_data_from_subfolder(root_id):
     ahora = datetime.now()
     meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
              7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+    
+    nombre_mes_buscado = meses[ahora.month].lower() # Ejemplo: "abril"
 
     try:
-        q_folder = f"'{root_id}' in parents and name contains '{meses[ahora.month]}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        res_folder = service.files().list(q=q_folder).execute()
-        folders = res_folder.get('files', [])
-        if not folders: return None, f"No se encontró carpeta para {meses[ahora.month]}"
+        # --- PASO 1: Listar carpetas en la Raíz ---
+        q_folders = f"'{root_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        res_folder = service.files().list(q=q_folders, fields="files(id, name)").execute()
+        all_folders = res_folder.get('files', [])
+        
+        # Log de carpetas encontradas para depurar
+        nombres_carpetas = [f['name'] for f in all_folders]
+        
+        # Buscar la carpeta que contenga el mes (insensible a mayúsculas)
+        target_folder = next((f for f in all_folders if nombre_mes_buscado in f['name'].lower()), None)
+        
+        if not target_folder:
+            error_msg = f"❌ No se encontró carpeta para '{meses[ahora.month]}'. "
+            error_msg += f"En la raíz ({root_id}) solo veo estas carpetas: {', '.join(nombres_carpetas) if nombres_carpetas else 'NINGUNA'}. "
+            error_msg += "Revisa si el Service Account tiene permisos en la carpeta raíz."
+            return None, error_msg
 
-        folder_id = folders[0]['id']
-        q_csv = f"'{folder_id}' in parents and name contains 'Stock' and trashed = false"
-        res_csv = service.files().list(q=q_csv).execute()
-        csv_files = res_csv.get('files', [])
-        if not csv_files: return None, "No se encontró el archivo de Stock (.csv)"
+        # --- PASO 2: Listar archivos dentro de la carpeta encontrada ---
+        folder_id = target_folder['id']
+        q_files = f"'{folder_id}' in parents and trashed = false"
+        res_files = service.files().list(q=q_files, fields="files(id, name, mimeType)").execute()
+        all_files = res_files.get('files', [])
+        
+        nombres_archivos = [f"{f['name']} ({f['mimeType']})" for f in all_files]
+        
+        # Buscar el archivo de Stock
+        target_file = next((f for f in all_files if "stock" in f['name'].lower()), None)
 
-        file_id = csv_files[0]['id']
-        file_name = csv_files[0]['name']
+        if not target_file:
+            error_msg = f"📂 Carpeta '{target_folder['name']}' encontrada, pero no hay archivos de 'Stock'. "
+            error_msg += f"Contenido actual: {', '.join(nombres_archivos) if nombres_archivos else 'VACÍA'}."
+            return None, error_msg
+
+        # --- PASO 3: Descarga y validación de formato ---
+        # Si el archivo es un Google Sheet (nativo), lanzamos un aviso específico
+        if target_file['mimeType'] == 'application/vnd.google-apps.spreadsheet':
+            return None, f"⚠️ El archivo '{target_file['name']}' es un Google Sheet nativo. Debe ser un .csv para que este código funcione."
+
+        file_id = target_file['id']
+        file_name = target_file['name']
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
@@ -60,8 +89,9 @@ def load_data_from_subfolder(root_id):
 
         df.columns = [c.strip().replace('#', '').replace(' ', '_') for c in df.columns]
         return df, file_name
+
     except Exception as e:
-        return None, f"Error al cargar Drive: {e}"
+        return None, f"🔥 Error crítico de API o Conexión: {str(e)}"
 
 # --- ESTILO CSS PERSONALIZADO ---
 st.markdown(
